@@ -1,0 +1,125 @@
+#1. Access the Data Set
+setwd("C:/Users/fyh10/Desktop")
+data<-read.csv("housing.csv",header=TRUE)
+housing<-data.frame(data)
+head(housing)
+summary(housing)
+
+#2. Data Visualization
+hist0bj_freq<-hist(housing$longitude,freq=TRUE,col="red")
+hist0bj_freq<-hist(housing$latitude,freq=TRUE,col="blue")
+hist0bj_freq<-hist(housing$housing_median_age,freq=TRUE,col="green")
+hist0bj_freq<-hist(housing$total_rooms,freq=TRUE,col="yellow")
+hist0bj_freq<-hist(housing$total_bedrooms,freq=TRUE,col="gray")
+hist0bj_freq<-hist(housing$population,freq=TRUE,col="purple")
+hist0bj_freq<-hist(housing$households,freq=TRUE,col="orange")
+hist0bj_freq<-hist(housing$median_income,freq=TRUE,col="pink")
+hist0bj_freq<-hist(housing$median_house_value,freq=TRUE,col="brown")
+#I don't think housing_median_age will contribute much to our result because 
+#it is relatively distributed envenly. But it's only a guess, we should
+#carry out more tests to support this guess.
+
+#3. Data Tranformation
+housing$total_bedrooms[is.na(housing$total_bedrooms)] <-median(housing$total_bedrooms,na.rm=TRUE)
+cols<-paste0("ocean_proximity-", c("<1H OCEAN","INLAND","ISLAND","NEAR BAY","NEAR OCEAN"))
+
+housing[cols]<-0
+mapply(function(x,y) housing[x,y]<<-1,seq(nrow(housing)),paste0("ocean_proximity-",housing$ocean_proximity))
+housing$ocean_proximity<-NULL
+
+summ<-0
+housing$mean_bedrooms<-numeric(20640)
+for(i in 1:20640){
+  summ=summ+housing$total_bedrooms[i]
+  housing$mean_bedrooms[i]=summ/i
+}
+
+sumn<-0
+housing$mean_rooms<-numeric(20640)
+for(i in 1:20640){
+  sumn=sumn+housing$total_rooms[i]
+  housing$mean_rooms[i]=sumn/i
+}
+housing$total_bedrooms<-NULL
+housing$total_rooms<-NULL
+
+cleaned_housing<-scale(subset(housing,select=-median_house_value))
+cleaned_housing<-data.frame(cbind(cleaned_housing,housing$median_house_value))
+names(cleaned_housing)[names(cleaned_housing) == 'V14'] <- 'median_house_value'
+
+#4. Create Training and Test Sets
+n<-nrow(cleaned_housing)
+ntrain<-round(n*0.8)
+set.seed(314)
+tindex<-sample(n,ntrain)
+train<-cleaned_housing[tindex,]
+test<-cleaned_housing[-tindex,]
+
+#5. Supervised Machine Learining-Classification
+train_x<-subset(train,select=-median_house_value)
+train_y<-subset(train,select=median_house_value)
+install.packages("randomForest")
+library(randomForest)
+rf<-randomForest(median_house_value~.,data=train,ntree=500,importance=TRUE)
+print(rf)
+#Call:
+#randomForest(formula = median_house_value ~ ., data = train,      ntree = 500, importance = TRUE) 
+#Type of random forest: regression
+#Number of trees: 500
+#No. of variables tried at each split: 4
+
+#Mean of squared residuals: 2058681409
+#% Var explained: 84.6
+
+names(rf)
+#[1] "call"            "type"            "predicted"      
+#[4] "mse"             "rsq"             "oob.times"      
+#[7] "importance"      "importanceSD"    "localImportance"
+#[10] "proximity"       "ntree"           "mtry"           
+#[13] "forest"          "coefs"           "y"              
+#[16] "test"            "inbag"           "terms" 
+
+rf$importance
+#                             %IncMSE IncNodePurity
+#longitude                  7624264538  2.301650e+13
+#latitude                   6063509475  2.146743e+13
+#housing_median_age          951039378  7.976141e+12
+#population                  755848207  6.194039e+12
+#households                  769134713  6.407564e+12
+#median_income              8256112102  8.122358e+13
+#ocean_proximity..1H.OCEAN  2132168201  4.859877e+12
+#ocean_proximity.INLAND     4406230852  2.879680e+13
+#ocean_proximity.ISLAND        1570358  7.164607e+10
+#ocean_proximity.NEAR.BAY    352468825  1.157530e+12
+#ocean_proximity.NEAR.OCEAN  527160205  1.929700e+12
+#mean_bedrooms              3321713574  1.616852e+13
+#mean_rooms                 3044910478  1.535688e+13
+
+#6. Evaluating Model Performance
+oob_prediction=predict(rf)
+oob_prediction<-data.frame(oob_prediction)
+matrixa<-data.frame(cbind(oob_prediction,train_y))
+matrixa$cal<-(matrixa$oob_prediction-matrixa$median_house_value)^2
+train_mse<-mean(matrixa$cal)
+train_mse
+#[1] 2058681409
+oob_rmse=sqrt(train_mse)
+oob_rmse
+#[1] 45372.69
+test_x<-subset(test,select=-median_house_value)
+test_y<-subset(test,select=median_house_value)
+
+y_pred=predict(rf,test_x)
+y_pred<-data.frame(y_pred)
+matrixb<-data.frame(cbind(y_pred,test_y))
+matrixb$cal<-(matrixb$y_pred-matrixb$median_house_value)^2
+test_mse<-mean(matrixb$cal)
+test_mse
+#[1] 2009750350
+test_rmse=sqrt(test_mse)
+test_rmse
+#[1] 44830.24
+
+#Train set RMSE is 45372.69 and test set RMSE is 44830.24. The model score
+#roughly the same on the training and testing data,
+#suggesting that it makes good predictions!
